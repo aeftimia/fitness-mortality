@@ -1,76 +1,89 @@
-# VO₂ Max Mortality Calculator
+# Fitness & Mortality Calculator
 
-An open-source static website that estimates how cardiorespiratory fitness (VO₂ max) affects all-cause mortality risk, and expresses the difference in intuitive units like base jumps, skydives, and CT scans per year.
+An open-source calculator for exploring the relationship between physical fitness and all-cause mortality. It supports VO₂ max and grip strength and expresses the modeled differences in annual mortality, remaining life expectancy, and equivalent risks from other activities.
 
-**[Live demo →](https://aeftimia.github.io/vo2max-mortality)**
+**[Open the calculator](https://aeftimia.github.io/fitness-mortality/)** · **[Methodology and sources](https://aeftimia.github.io/fitness-mortality/methodology.html)**
 
 ## What it does
 
-Given your age, sex, VO₂ max, and any relevant health conditions, the calculator:
+Enter your age, sex, and a fitness measurement. You can choose VO₂ max in mL/kg/min or grip strength in kg and optionally include health conditions and smoking status.
 
-1. Classifies your fitness level using FRIEND 2022 percentile norms and estimates mortality using a continuous FRIEND+Kokkinos model (FRIEND 2022 percentiles + Kokkinos 2022 HR = 0.86 per +1 MET). VO₂ max is interpolated using monotone quadratic histosplines (age direction, bin-average preserving) and monotone quadratic splines with flat tails (percentile direction).
-2. Anchors population-average mortality to the SSA period life tables via an integral normalization so the expected fitness hazard equals 1.0. Separate normalization constants are precomputed for the central HR estimate and each CI bound (0.85, 0.87).
-3. Adjusts for health conditions using HRs from large published studies
-4. Shows excess mortality from moving between fitness percentiles or deciles, expressed as equivalent annual risky activities
+The calculator estimates your percentile among adults of the same age and sex, normalizes a continuous fitness hazard model against the reference fitness distribution, and applies that multiplier to US population mortality rates.
 
-## Key data sources
+The results include annual mortality estimates, ranges derived from the published fitness hazard ratio confidence intervals, a plot of mortality across fitness levels, and comparisons with other fitness percentiles. It also estimates remaining life expectancy and expresses annual mortality differences as equivalent numbers of BASE jumps, skydives, and general anesthesias.
 
-| Source | Used for |
-|--------|----------|
-| Kokkinos et al. 2022 (J Am Coll Cardiol) | Continuous hazard ratio (0.86 per +1 MET) |
-| FRIEND 2022 (Mayo Clin Proc) | Age/sex-specific VO₂ max percentile norms |
-| SSA Period Life Table 2021 | Population baseline mortality |
-| Multiple large cohort studies | Risk factor hazard ratios |
+Each calculation uses one fitness metric. VO₂ max and grip strength have separate reference distributions and mortality associations.
 
-See [methodology.html](methodology.html) for the full mathematical derivation, all citations, and limitations.
+## Fitness metrics and sources
 
-## Math in brief
+| Metric | Reference distribution | Mortality association |
+|---|---|---|
+| VO₂ max | FRIEND 2022 age and sex norms | Kokkinos et al. 2022, HR 0.86 per additional MET, with 1 MET equal to 3.5 mL/kg/min |
+| Grip strength | International iGRIPS norms from Tomkinson et al. 2024 | Celis-Morales et al. 2018, HR 1.16 for men and 1.20 for women per 5 kg lower grip strength |
 
+The grip strength model uses sex-specific hazard ratios. Both models interpolate the published fitness percentiles across age and fitness level and normalize the resulting hazard multipliers separately for each age, sex, and hazard ratio estimate.
+
+The embedded mortality data come from the CDC/NCHS *United States Life Tables, 2021*. The data file contains exact annual mortality probabilities for ages 0–99 and extrapolates ages 100–119. Optional risk factors include type 2 diabetes, hypertension, current or former smoking, and obesity class.
+
+The [methodology](methodology.html) explains the interpolation, normalization, life expectancy calculation, assumptions, and sources. Citation metadata is stored in [js/data/citations.js](js/data/citations.js).
+
+## Model in brief
+
+For a fitness measurement `B`, the model uses a published hazard ratio `r` per unit `u`.
+
+```text
+rawHR(B) = r^(B / u)
+fitnessHR(B) = rawHR(B) / E[rawHR | age, sex]
+qUser = qPopulation(age, sex) × fitnessHR(B) × product(selected risk factor HRs)
 ```
-W       = Σ(f_i × HR_i)          # population-weighted HR ≈ 0.601
-q_Low   = q_SSA(age, sex) / W    # back-calculate Low fitness mortality
-q_i     = q_Low × HR_i           # mortality for each fitness category
-q_user  = q_i × Π(HR_comorbidities)
-Δq      = q_user[target] − q_user[current]
-N_base_jumps = Δq × 2317         # 1 base jump ≈ 0.043% mortality risk
+
+The expectation is taken over the reference fitness distribution for the selected age and sex. This makes the average fitness multiplier equal to one and preserves the population mortality baseline before optional risk factor adjustments. Each confidence interval bound has its own normalization.
+
+Remaining life expectancy is computed from survival across future ages while holding the current proportional mortality multiplier constant. Risk equivalents divide the difference in annual mortality probability between two fitness levels by the mortality probability per event.
+
+## Run locally
+
+The site uses HTML, CSS, and vanilla JavaScript. It has no application build step, and calculations run in the browser.
+
+Clone the repository and open `index.html`, or serve the directory with a local static server.
+
+```sh
+git clone https://github.com/aeftimia/fitness-mortality.git
+cd fitness-mortality
+python3 -m http.server 8000
 ```
 
-## Technical
-
-- Pure static site: HTML + CSS + vanilla JavaScript, no framework, no build step
-- All computation client-side
-- Works from `file://` (open `index.html` directly) or any static host
-- Chart.js loaded from CDN (pinned version with SRI hash)
-- Debug/unit tests: open `index.html?debug=1` and check the browser console
+Open [localhost:8000](http://localhost:8000). Chart.js and the methodology page's KaTeX assets load from CDNs.
 
 ## Verification
 
-Open `index.html?debug=1` in a browser. The test suite runs automatically and reports results in the browser console. All tests should pass before contributing changes.
+Open the calculator and run the existing model suites in the browser's developer console.
 
-Key sanity checks:
-- `q_Low > q_pop > q_Elite` at every age
-- HR ratios preserved in derived mortality values
-- 30-year-old male with VO₂ max 45 → Above Average, ~0.13%/yr
+```js
+testContinuousModel()
+testGripModel()
+```
 
-## Contributing
+Each suite logs its results and returns `true` when all checks pass. The checks cover data loading, percentile lookup, monotonicity, population normalization, and integration with the mortality engine.
 
-Contributions welcome, especially:
-- Replacing the interpolated SSA life table with exact integer-age values from the published table
-- Adding additional well-cited risk factors (with source)
-- Improving VO₂ max percentile data as newer FRIEND registry updates become available
-- Translations and accessibility improvements
-
-Please open an issue before submitting large changes. All data values must be traceable to a published source with a DOI or URL.
+Also check both metric options in the interface and confirm that the units, reference percentiles, chart, risk equivalents, and life expectancy results update correctly.
 
 ## Limitations
 
-This tool is for educational purposes only. See [methodology.html](methodology.html) for a full list of assumptions and limitations. Key caveats:
+- The mortality associations come from observational studies. Confounding and reverse causality can affect the estimates.
+- Fitness measurements are proxies for broader health. A modeled difference between fitness levels does not establish the benefit of a particular exercise program.
+- The source populations differ. VO₂ max mortality estimates come from clinical exercise testing, grip strength estimates come from UK Biobank, and the fitness norms and mortality baseline come from other populations.
+- The model applies a constant hazard ratio per fitness unit and multiplies optional risk factor adjustments independently.
+- Life expectancy estimates assume the current proportional mortality multiplier persists across future ages.
+- The displayed ranges reflect uncertainty in the published fitness hazard ratios. They do not capture all uncertainty in the measurements, source populations, or modeling assumptions.
+- Risk equivalents compare mortality probabilities. Activities also differ in injury risk, timing, and other consequences.
 
-- Study cohorts are clinical referral populations, not general population samples
-- HRs are observational — causality is not established
-- Risk factors applied multiplicatively (independence assumption)
-- Not medical advice
+This calculator is for education and research. It is not medical advice.
+
+## Contributing
+
+Improvements to data sources, model validation, risk comparisons, and accessibility are welcome. Please open an issue before submitting large changes and provide a DOI or source URL for new data.
 
 ## License
 
-MIT. Data sources are public domain (SSA) or used per their respective licenses for educational purposes with attribution.
+MIT. US federal government mortality data are public domain. Other data are used per their respective licenses for educational purposes with attribution.
